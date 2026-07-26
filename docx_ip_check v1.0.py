@@ -239,7 +239,11 @@ def build_report(ip_address: str) -> str:
 #####################################################################################################################################################
 
 # Модификация пользовательского ввода, распознавание стран
-user_input = user_input.split('\n')
+user_input = user_input.strip()
+if '\n' in user_input:
+    user_input = user_input.split('\n')
+else:
+    user_input = user_input.split(' ')
 reports_by_detection_count = {}
 modified_user_input = []
 for ip_address in user_input:
