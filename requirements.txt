@@ -1,0 +1,4 @@
+python-docx
+pyautogui
+requests
+python-dotenv
