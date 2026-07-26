@@ -17,10 +17,10 @@ if not VT_API_KEY:
 if not ABUSEIPDB_API_KEY:
     raise ValueError("ABUSEIPDB_API_KEY не задана в переменных окружения")
 
-MAX_AGE_IN_DAYS = "90"
+MAX_ABUDEIPDB_AGE_DAYS = "90"
 
 # Создание окошка с запросом пользовательского ввода
-user_input = pyautogui.prompt(text='Введите ip-адреса + страны', title='Отчёт о вредоносных IP-адресах' , default='')
+user_input = pyautogui.prompt(text='Введите ip-адреса', title='Отчёт о вредоносных IP-адресах' , default='')
 
 # Проверка всех айпи адресов и выдача самого вредоносного ##############################################################################################
 
@@ -97,7 +97,15 @@ def fetch_virustotal(ip_address: str):
         "x-apikey": VT_API_KEY
     }
 
-    response = requests.get(url, headers=headers)
+    # response = requests.get(url, headers=headers)
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=10
+        )
+    except requests.RequestException as error:
+        return None, str(error)
 
     if response.status_code == 200:
         return response.status_code, response.json()
@@ -110,7 +118,7 @@ def fetch_abuseipdb(ip_address: str):
 
     params = {
         "ipAddress": ip_address,
-        "maxAgeInDays": MAX_AGE_IN_DAYS,
+        "maxAgeInDays": MAX_ABUDEIPDB_AGE_DAYS,
         "verbose": "true",
     }
 
@@ -142,10 +150,10 @@ def build_report(ip_address: str) -> str:
 
     # ---------- AbuseIPDB: страна и провайдер ----------
     if abuse_status == 200 and isinstance(abuse_data, dict):
-        data = abuse_data.get("data", {})
+        abuse_report_data = abuse_data.get("data", {})
 
-        country_code = data.get("countryCode")
-        isp = data.get("isp") or "не определён"
+        country_code = abuse_report_data.get("countryCode")
+        isp = abuse_report_data.get("isp") or "не определён"
 
         if country_code:
             report_lines.append(f"Страна: {get_country_name_russian(country_code)}")
@@ -158,7 +166,7 @@ def build_report(ip_address: str) -> str:
         # а также даты этих отчётов, чтобы найти самый старый (первый) отчёт
         category_ids = set()
         report_dates = []
-        for report in data.get("reports", []):
+        for report in abuse_report_data.get("reports", []):
             category_ids.update(report.get("categories", []))
             parsed_date = parse_iso_datetime(report.get("reportedAt"))
             if parsed_date:
@@ -169,7 +177,7 @@ def build_report(ip_address: str) -> str:
                 get_category_name(cid) for cid in sorted(category_ids)
             )
             oldest_report_at = min(report_dates) if report_dates else None
-            time_ago = humanize_elapsed(oldest_report_at) if oldest_report_at else f"{MAX_AGE_IN_DAYS} дней"
+            time_ago = humanize_elapsed(oldest_report_at) if oldest_report_at else f"{MAX_ABUDEIPDB_AGE_DAYS} дней"
             abuse_categories_line = (
                 f"По отчётам пользователей на AbuseIPDB за последние {time_ago} "
                 f"представлен в категориях: {categories_text}"
@@ -232,12 +240,12 @@ def build_report(ip_address: str) -> str:
 
 # Модификация пользовательского ввода, распознавание стран
 user_input = user_input.split('\n')
-map_detections_report = {}
+reports_by_detection_count = {}
 modified_user_input = []
 for ip_address in user_input:
     report, detections = build_report(ip_address)
-    if detections not in map_detections_report:
-        map_detections_report[detections] = report
+    if detections not in reports_by_detection_count:
+        reports_by_detection_count[detections] = report
     modified_user_input.append(ip_address)
     country = report[report.find('Страна: ') + len('Страна: '):report.find('\n', report.find('Страна: ') + len('Страна: '))]
     modified_user_input.append(country)
@@ -262,9 +270,11 @@ doc.add_paragraph(f'Уведомление об автоматизированн
 table = doc.add_table(rows=len(user_input)//2+1, cols=2)
 table.style = 'Table Grid'
 table.autofit = False
+IP_COLUMN_WIDTH = Cm(2.94)
+DESCRIPTION_COLUMN_WIDTH = Cm(13.74)
 for row in table.rows:
-    row.cells[0].width = Cm(2.94)
-    row.cells[1].width = Cm(13.74)
+    row.cells[0].width = IP_COLUMN_WIDTH
+    row.cells[1].width = DESCRIPTION_COLUMN_WIDTH
 table.rows[0].height = Cm(0.62)
 
 # Задание заголовков таблицы
@@ -280,7 +290,7 @@ cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
 # Вывод айпишников и их стран
 i = 0
-for row in range(1 ,len(user_input)//2+1):
+for row in range(1 ,len(user_input) // 2 + 1):
     cell = table.cell(row, 0)
     ip_parts = user_input[i].rsplit('.', 1)
     cell.text = ip_parts[0] + '*' + ip_parts[1] + f'\n({user_input[i+1]})'
@@ -295,8 +305,8 @@ if len(user_input)//2 > 0:
     start_cell.merge(end_cell)
 
 # Находим самый вредоносный айпишник
-map_detections_report = dict(sorted(map_detections_report.items(), reverse=True))
-max_detections_report = list(map_detections_report.values())[0]
+reports_by_detection_count = dict(sorted(reports_by_detection_count.items(), reverse=True))
+max_detections_report = list(reports_by_detection_count.values())[0]
 
 # Преобразуем отчёт о наивреднейшем айпи для отчёта в docx
 max_detections_report = max_detections_report[max_detections_report.find("При проверке на TI"):]
