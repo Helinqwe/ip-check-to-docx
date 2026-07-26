@@ -6,9 +6,10 @@ import requests
 import ipaddress
 import os
 from datetime import datetime, timezone
+from dotenv import load_dotenv
+load_dotenv()
+from dictionaries import COUNTRY_CODES, ABUSEIPDB_CATEGORIES
 
-# ==================== НАСТРОЙКИ ====================
-# Введите VirusTotal API Key и AbuseIPDB API Key
 VT_API_KEY = os.getenv("VT_API_KEY")
 ABUSEIPDB_API_KEY = os.getenv("ABUSEIPDB_API_KEY")
 if not VT_API_KEY:
@@ -21,177 +22,16 @@ MAX_AGE_IN_DAYS = "90"
 # Создание окошка с запросом пользовательского ввода
 user_input = pyautogui.prompt(text='Введите ip-адреса + страны', title='Отчёт о вредоносных IP-адресах' , default='')
 
-# Модификация пользовательского ввода для правильного форматирования данных
-user_input = user_input.split('\n')
-modified_user_input = []
-for elem in user_input:
-    elem = elem.replace(' ', '@', 1)
-    elem = elem + '@'
-    modified_user_input.append(elem)
-modified_user_input = ''.join(modified_user_input).split('@')
-modified_user_input.pop()
-user_input = modified_user_input
-
-# Создание документа
-doc = Document()
-
-# Задание стилей документа
-style = doc.styles['Normal']
-style.font.name = 'Times New Roman'
-style.font.size = Pt(10)
-style.paragraph_format.line_spacing = 1.15
-
-# Получение текущей даты
-now_date = str(datetime.now().strftime("%d-%m-%Y %H:%M").replace(':','-'))
-
-# Вывод в документ текста с датой
-doc.add_paragraph(f'Уведомление об автоматизированных сканированиях {now_date.split()[0].replace('-', '.')}')
-
-# Создание таблицы в документе и задание стилей
-table = doc.add_table(rows=len(user_input)//2+1, cols=2)
-table.style = 'Table Grid'
-table.autofit = False
-for row in table.rows:
-    row.cells[0].width = Cm(2.94)
-    row.cells[1].width = Cm(13.74)
-table.rows[0].height = Cm(0.62)
-
-# Задание заголовков таблицы
-cell = table.cell(0, 0)
-cell.text = 'IP'
-cell.paragraphs[0].runs[0].bold = True
-cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-cell = table.cell(0, 1)
-cell.text = 'Описание'
-cell.paragraphs[0].runs[0].bold = True
-cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-# Вывод айпишников и их стран
-i = 0
-for row in range(1 ,len(user_input)//2+1):
-    cell = table.cell(row, 0)
-    ip_parts = user_input[i].rsplit('.', 1)
-    cell.text = ip_parts[0] + '*' + ip_parts[1] + f'\n({user_input[i+1]})'
-    for paragraph in cell.paragraphs:
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    i += 2
-
-# Объединение всех строк во втором столбце
-if len(user_input)//2 > 0:
-    start_cell = table.cell(1,1)
-    end_cell = table.cell(len(user_input)//2, 1)
-    start_cell.merge(end_cell)
-
 # Проверка всех айпи адресов и выдача самого вредоносного ##############################################################################################
-
-# ==================== СЛОВАРИ ====================
-
-# Словарь для преобразования кодов стран в названия на русском ПИСЬКА с===3
-country_codes_to_russian = {
-    "AF": "Афганистан", "AX": "Аландские острова", "AL": "Албания", "DZ": "Алжир",
-    "AS": "Американское Самоа", "AD": "Андорра", "AO": "Ангола", "AI": "Ангилья",
-    "AQ": "Антарктида", "AG": "Антигуа и Барбуда", "AR": "Аргентина", "AM": "Армения",
-    "AW": "Аруба", "AU": "Австралия", "AT": "Австрия", "AZ": "Азербайджан",
-    "BS": "Багамы", "BH": "Бахрейн", "BD": "Бангладеш", "BB": "Барбадос",
-    "BY": "Беларусь", "BE": "Бельгия", "BZ": "Белиз", "BJ": "Бенин",
-    "BM": "Бермуды", "BT": "Бутан", "BO": "Боливия", "BQ": "Бонайре, Синт-Эстатиус и Саба",
-    "BA": "Босния и Герцеговина", "BW": "Ботсвана", "BV": "Остров Буве", "BR": "Бразилия",
-    "IO": "Британская территория в Индийском океане", "BN": "Бруней-Даруссалам", "BG": "Болгария",
-    "BF": "Буркина-Фасо", "BI": "Бурунди", "CV": "Кабо-Верде", "KH": "Камбоджа",
-    "CM": "Камерун", "CA": "Канада", "KY": "Острова Кайман", "CF": "ЦАР",
-    "TD": "Чад", "CL": "Чили", "CN": "Китай", "CX": "Остров Рождества",
-    "CC": "Кокосовые острова", "CO": "Колумбия", "KM": "Коморы", "CG": "Конго",
-    "CD": "ДР Конго", "CK": "Острова Кука", "CR": "Коста-Рика", "CI": "Кот-д'Ивуар",
-    "HR": "Хорватия", "CU": "Куба", "CW": "Кюрасао", "CY": "Кипр",
-    "CZ": "Чехия", "DK": "Дания", "DJ": "Джибути", "DM": "Доминика",
-    "DO": "Доминиканская Республика", "EC": "Эквадор", "EG": "Египет", "SV": "Сальвадор",
-    "GQ": "Экваториальная Гвинея", "ER": "Эритрея", "EE": "Эстония", "SZ": "Эсватини",
-    "ET": "Эфиопия", "FK": "Фолклендские острова", "FO": "Фарерские острова", "FJ": "Фиджи",
-    "FI": "Финляндия", "FR": "Франция", "GF": "Французская Гвиана", "PF": "Французская Полинезия",
-    "TF": "Французские Южные территории", "GA": "Габон", "GM": "Гамбия", "GE": "Грузия",
-    "DE": "Германия", "GH": "Гана", "GI": "Гибралтар", "GR": "Греция",
-    "GL": "Гренландия", "GD": "Гренада", "GP": "Гваделупа", "GU": "Гуам",
-    "GT": "Гватемала", "GG": "Гернси", "GN": "Гвинея", "GW": "Гвинея-Бисау",
-    "GY": "Гайана", "HT": "Гаити", "HM": "Херд и Макдональд", "VA": "Ватикан",
-    "HN": "Гондурас", "HK": "Гонконг", "HU": "Венгрия", "IS": "Исландия",
-    "IN": "Индия", "ID": "Индонезия", "IR": "Иран", "IQ": "Ирак",
-    "IE": "Ирландия", "IM": "Остров Мэн", "IL": "Израиль", "IT": "Италия",
-    "JM": "Ямайка", "JP": "Япония", "JE": "Джерси", "JO": "Иордания",
-    "KZ": "Казахстан", "KE": "Кения", "KI": "Кирибати", "KP": "КНДР",
-    "KR": "Республика Корея", "KW": "Кувейт", "KG": "Киргизия", "LA": "Лаос",
-    "LV": "Латвия", "LB": "Ливан", "LS": "Лесото", "LR": "Либерия",
-    "LY": "Ливия", "LI": "Лихтенштейн", "LT": "Литва", "LU": "Люксембург",
-    "MO": "Макао", "MG": "Мадагаскар", "MW": "Малави", "MY": "Малайзия",
-    "MV": "Мальдивы", "ML": "Мали", "MT": "Мальта", "MH": "Маршалловы Острова",
-    "MQ": "Мартиника", "MR": "Мавритания", "MU": "Маврикий", "YT": "Майотта",
-    "MX": "Мексика", "FM": "Микронезия", "MD": "Молдавия", "MC": "Монако",
-    "MN": "Монголия", "ME": "Черногория", "MS": "Монтсеррат", "MA": "Марокко",
-    "MZ": "Мозамбик", "MM": "Мьянма", "NA": "Намибия", "NR": "Науру",
-    "NP": "Непал", "NL": "Нидерланды", "NC": "Новая Каледония", "NZ": "Новая Зеландия",
-    "NI": "Никарагуа", "NE": "Нигер", "NG": "Нигерия", "NU": "Ниуэ",
-    "NF": "Остров Норфолк", "MK": "Северная Македония", "MP": "Северные Марианские Острова",
-    "NO": "Норвегия", "OM": "Оман", "PK": "Пакистан", "PW": "Палау",
-    "PS": "Палестина", "PA": "Панама", "PG": "Папуа — Новая Гвинея", "PY": "Парагвай",
-    "PE": "Перу", "PH": "Филиппины", "PN": "Острова Питкэрн", "PL": "Польша",
-    "PT": "Португалия", "PR": "Пуэрто-Рико", "QA": "Катар", "RE": "Реюньон",
-    "RO": "Румыния", "RU": "Россия", "RW": "Руанда", "BL": "Сен-Бартелеми",
-    "SH": "Острова Святой Елены, Вознесения и Тристан-да-Кунья", "KN": "Сент-Китс и Невис",
-    "LC": "Сент-Люсия", "MF": "Сен-Мартен", "PM": "Сен-Пьер и Микелон", "VC": "Сент-Винсент и Гренадины",
-    "WS": "Самоа", "SM": "Сан-Марино", "ST": "Сан-Томе и Принсипи", "SA": "Саудовская Аравия",
-    "SN": "Сенегал", "RS": "Сербия", "SC": "Сейшелы", "SL": "Сьерра-Леоне",
-    "SG": "Сингапур", "SX": "Синт-Мартен", "SK": "Словакия", "SI": "Словения",
-    "SB": "Соломоновы Острова", "SO": "Сомали", "ZA": "ЮАР", "GS": "Южная Георгия и Южные Сандвичевы острова",
-    "SS": "Южный Судан", "ES": "Испания", "LK": "Шри-Ланка", "SD": "Судан",
-    "SR": "Суринам", "SJ": "Шпицберген и Ян-Майен", "SE": "Швеция", "CH": "Швейцария",
-    "SY": "Сирия", "TW": "Тайвань", "TJ": "Таджикистан", "TZ": "Танзания",
-    "TH": "Таиланд", "TL": "Восточный Тимор", "TG": "Того", "TK": "Токелау",
-    "TO": "Тонга", "TT": "Тринидад и Тобаго", "TN": "Тунис", "TR": "Турция",
-    "TM": "Туркменистан", "TC": "Тёркс и Кайкос", "TV": "Тувалу", "UG": "Уганда",
-    "UA": "Украина", "AE": "ОАЭ", "GB": "Великобритания", "US": "США",
-    "UM": "Внешние малые острова США", "UY": "Уругвай", "UZ": "Узбекистан", "VU": "Вануату",
-    "VE": "Венесуэла", "VN": "Вьетнам", "VG": "Виргинские Острова (Великобритания)",
-    "VI": "Виргинские Острова (США)", "WF": "Уоллис и Футуна", "EH": "Западная Сахара", "YE": "Йемен",
-    "ZM": "Замбия", "ZW": "Зимбабве", "XK": "Косово",
-}
-
-# Категории нарушений AbuseIPDB (https://www.abuseipdb.com/categories)
-# Названия оставлены в исходном виде, как они фигурируют на самой платформе AbuseIPDB
-abuseipdb_categories_en = {
-    1: "DNS Compromise",
-    2: "DNS Poisoning",
-    3: "Fraud Orders",
-    4: "DDoS Attack",
-    5: "FTP Brute-Force",
-    6: "Ping of Death",
-    7: "Phishing",
-    8: "Fraud VOIP",
-    9: "Open Proxy",
-    10: "Web Spam",
-    11: "Email Spam",
-    12: "Blog Spam",
-    13: "VPN IP",
-    14: "Port Scan",
-    15: "Hacking",
-    16: "SQL Injection",
-    17: "Spoofing",
-    18: "Brute-Force",
-    19: "Bad Web Bot",
-    20: "Exploited Host",
-    21: "Web App Attack",
-    22: "SSH",
-    23: "IoT Targeted",
-}
-
 
 def get_country_name_russian(country_code):
     """Преобразует код страны в название на русском языке"""
-    return country_codes_to_russian.get(country_code, f"{country_code} (неизвестная страна)")
+    return COUNTRY_CODES.get(country_code, f"{country_code} (неизвестная страна)")
 
 
 def get_category_name(category_id):
     """Преобразует числовой ID категории AbuseIPDB в её короткое название"""
-    return abuseipdb_categories_en.get(category_id, f"Unknown ({category_id})")
+    return ABUSEIPDB_CATEGORIES.get(category_id, f"Unknown ({category_id})")
 
 
 def ru_plural(number: int, one: str, few: str, many: str) -> str:
@@ -289,7 +129,6 @@ def fetch_abuseipdb(ip_address: str):
         return response.status_code, response.json()
 
     return response.status_code, response.text
-
 
 # ==================== ФОРМИРОВАНИЕ ОТЧЁТА ====================
 
@@ -391,13 +230,69 @@ def build_report(ip_address: str) -> str:
 
 #####################################################################################################################################################
 
-# Пробиваем все айпишники и сохраняем репорты на них
-ip_on_check = user_input[::2]
+# Модификация пользовательского ввода, распознавание стран
+user_input = user_input.split('\n')
 map_detections_report = {}
-for ip_address in ip_on_check:
+modified_user_input = []
+for ip_address in user_input:
     report, detections = build_report(ip_address)
     if detections not in map_detections_report:
         map_detections_report[detections] = report
+    modified_user_input.append(ip_address)
+    country = report[report.find('Страна: ') + len('Страна: '):report.find('\n', report.find('Страна: ') + len('Страна: '))]
+    modified_user_input.append(country)
+user_input = modified_user_input
+
+# Создание документа
+doc = Document()
+
+# Задание стилей документа
+style = doc.styles['Normal']
+style.font.name = 'Times New Roman'
+style.font.size = Pt(10)
+style.paragraph_format.line_spacing = 1.15
+
+# Получение текущей даты
+now_date = str(datetime.now().strftime("%d-%m-%Y %H:%M").replace(':','-'))
+
+# Вывод в документ текста с датой
+doc.add_paragraph(f'Уведомление об автоматизированных сканированиях {now_date.split()[0].replace('-', '.')}')
+
+# Создание таблицы в документе и задание стилей
+table = doc.add_table(rows=len(user_input)//2+1, cols=2)
+table.style = 'Table Grid'
+table.autofit = False
+for row in table.rows:
+    row.cells[0].width = Cm(2.94)
+    row.cells[1].width = Cm(13.74)
+table.rows[0].height = Cm(0.62)
+
+# Задание заголовков таблицы
+cell = table.cell(0, 0)
+cell.text = 'IP'
+cell.paragraphs[0].runs[0].bold = True
+cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+cell = table.cell(0, 1)
+cell.text = 'Описание'
+cell.paragraphs[0].runs[0].bold = True
+cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+# Вывод айпишников и их стран
+i = 0
+for row in range(1 ,len(user_input)//2+1):
+    cell = table.cell(row, 0)
+    ip_parts = user_input[i].rsplit('.', 1)
+    cell.text = ip_parts[0] + '*' + ip_parts[1] + f'\n({user_input[i+1]})'
+    for paragraph in cell.paragraphs:
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    i += 2
+
+# Объединение всех строк во втором столбце
+if len(user_input)//2 > 0:
+    start_cell = table.cell(1,1)
+    end_cell = table.cell(len(user_input)//2, 1)
+    start_cell.merge(end_cell)
 
 # Находим самый вредоносный айпишник
 map_detections_report = dict(sorted(map_detections_report.items(), reverse=True))
@@ -414,5 +309,5 @@ cell = table.cell(1, 1)
 cell.text = max_detections_report
 
 # Сохранение документа с выбранным названием
-doc.save(f'Отчёт о сканах {now_date}.docx')
+doc.save(f'Отчёт о вредоносных IP-адресах {now_date}.docx')
 print('Отчёт готов. Завершение работы.')
